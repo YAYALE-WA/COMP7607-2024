@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="xyz")
+client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="bc500256-a5de-4769-98b1-b51fbf91abce")
 
 completion = client.chat.completions.create(
     model="Meta-Llama-3.1-405B-Instruct",
