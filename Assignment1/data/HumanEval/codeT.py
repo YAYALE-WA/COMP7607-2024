@@ -5,7 +5,7 @@ from openai import OpenAI
 import time
 from collections import deque
 from baseline import write_jsonl, read_problems
-from execution import time_limit
+
 
 HUMAN_EVAL = "HumanEval.jsonl"
 

@@ -10,7 +10,7 @@ from combine import get_combine_file
 # get_self_refine_file()
 
 # 生成codeT数据
-get_codeT_file()
+# get_codeT_file()
 
 # 生成combine数据
-# get_combine_file()
+get_combine_file()

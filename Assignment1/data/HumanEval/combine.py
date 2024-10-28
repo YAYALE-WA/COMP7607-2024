@@ -5,7 +5,7 @@ from openai import OpenAI
 import time
 from collections import deque
 from baseline import write_jsonl, read_problems
-from execution import time_limit
+from codeT import time_limit,TimeoutException
 
 HUMAN_EVAL = "HumanEval_new.jsonl"
 
@@ -31,17 +31,20 @@ def gen_code_with_prompt(client, prompt: str, temperature: int = 0.6) -> Dict[st
 def refine_code_with_feedback(client, initial_prompt: str, max_iterations: int = 3, temperature: int = 0) -> Dict[str, str]:
     prompt = initial_prompt
     solutions=[]
+    token=0
     for iteration in range(max_iterations):
         result = gen_code_with_prompt(client, prompt, temperature)
         code = result["code"]
         solutions.append(code)
+        token+=len(code.split())
         if iteration < max_iterations - 1:
             feedback = request_feedback_from_model(client, initial_prompt,code)
+            token+=len(feedback.split())
             prompt = modify_prompt_with_feedback(code, initial_prompt, feedback)
             print(f"Iteration {iteration + 1}: Refining code with new feedback")
 
     print("Maximum iterations reached, returning latest attempt.")
-    return solutions
+    return solutions,token,prompt
 
 def request_feedback_from_model(client,prompt, code: str) -> str:
     feedback_prompt = (
@@ -108,6 +111,7 @@ def gen_test_cases(client,
         {"role": "user", "content": test_prompt}
     ]
     
+    token=0
     completion = client.chat.completions.create(
         model="Meta-Llama-3.1-8B-Instruct",
         messages=messages,
@@ -119,9 +123,11 @@ def gen_test_cases(client,
         if hasattr(delta, 'content'):
             test_cases += delta.content
 
+    token+=len(test_cases.split())
     _,test_cases=process_test_cases(test_cases)
 
-    return test_cases
+
+    return test_cases,token,test_prompt
 
 
 def check(code,test_cases,entry_point):
@@ -135,7 +141,7 @@ def check(code,test_cases,entry_point):
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         for test_case in test_cases:
             try:
-                with time_limit(5):  # 假设 time_limit 是一个控制时间的上下文管理器
+                with time_limit(5):  
                     check_program = (
                         code + "\n" +
                         "def check("+entry_point+"):\n"+
@@ -144,17 +150,24 @@ def check(code,test_cases,entry_point):
                     )
                     exec(check_program, exec_globals)
                     passed_tests += 1
+            except TimeoutException:  # 捕获超时错误
+                print("Timeout")
+                continue  
             except Exception as e:
-                print(f"Test case {test_case} failed with exception: {e}")
-                continue  # 跳过失败的测试案例
-
+                print(e)
+                continue  
     score=passed_tests/len(test_cases)
     return score
 
 
 def get_best_code(client, prompt, entry_point):
-    solutions=refine_code_with_feedback(client, prompt,max_iterations=5,temperature=0.6)
-    test_cases=gen_test_cases(client, prompt, entry_point)
+    total_tokens = 0  # 用于统计生成的 token 总数
+    start_time = time.time()  # 开始计时
+
+    solutions,token_code,code_prompt=refine_code_with_feedback(client, prompt,max_iterations=5,temperature=0.6)
+    test_cases,token_test,test_prompt=gen_test_cases(client, prompt, entry_point)
+    total_tokens+=token_code+token_test
+
     best_code=solutions[0] 
     
     max_score=0
@@ -164,8 +177,10 @@ def get_best_code(client, prompt, entry_point):
         if score>max_score: 
             max_score=score
             best_code=solution
-         
-    return best_code
+        
+    end_time = time.time()
+    wall_clock_time = end_time - start_time
+    return best_code,{"wall_clock_time": wall_clock_time,"total_tokens": total_tokens},{"code_prompt": code_prompt,"test_prompt": test_prompt}
 
 
 def get_combine_file():
@@ -174,6 +189,9 @@ def get_combine_file():
     client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="d791f60f-7e79-4ec3-8cda-c5cddd36aa00")
     # Prepare to collect samples
     samples = []
+    inference_cost=[]
+    sum_wall_clock_time=0
+    sum_total_tokens=0
 
     # Initialize a deque to keep track of API call timestamps
     call_times = deque()
@@ -201,8 +219,12 @@ def get_combine_file():
 
         wait_until_can_make_call()
         try:
-            completion = get_best_code(client, prompt, entry_point)
-            samples.append({"task_id": task_id, "completion": completion})
+            completion,cost,prompts = get_best_code(client, prompt, entry_point)
+            # samples.append({"task_id": task_id, "completion": completion})
+            samples.append({"input": prompt, "prompt": prompts["code_prompt"],"output": completion,"test_prompt": prompts["test_prompt"]})
+            inference_cost.append({"task_id": task_id, "wall_clock_time": cost["wall_clock_time"],"total_tokens": cost["total_tokens"]})
+            sum_wall_clock_time+=cost["wall_clock_time"]
+            sum_total_tokens+=cost["total_tokens"]
             print(f"Processed task {task_id}")
         except RateLimitError as e:
             print(f"Rate limit exceeded at task {task_id}: {e}")
@@ -212,8 +234,12 @@ def get_combine_file():
             call_times.clear()
             # Retry the same prompt
             try:
-                completion = get_best_code(client, prompt, entry_point)
-                samples.append({"task_id": task_id, "completion": completion})
+                completion,cost,prompts = get_best_code(client, prompt, entry_point)
+                # samples.append({"task_id": task_id, "completion": completion})
+                samples.append({"input": prompt, "prompt": prompts["code_prompt"],"output": completion,"test_prompt": prompts["test_prompt"]})
+                inference_cost.append({"task_id": task_id, "wall_clock_time": cost["wall_clock_time"],"total_tokens": cost["total_tokens"]})
+                sum_wall_clock_time+=cost["wall_clock_time"]
+                sum_total_tokens+=cost["total_tokens"]
                 print(f"Processed task {task_id} after waiting")
             except Exception as e:
                 print(f"Error at task {task_id} after retrying: {e}")
@@ -221,12 +247,23 @@ def get_combine_file():
             print(f"Error at task {task_id}: {e}")
         
         cnt+=1
-        if cnt==10:
-            write_jsonl("test-combine.jsonl",samples,True)
+        if cnt==4:
+            write_jsonl("answer-combine.jsonl", samples,True)
+            write_jsonl("cost_combine.jsonl",inference_cost,True)
             samples=[]
+            inference_cost=[]
         elif cnt%10==0:
-            write_jsonl("test-combine.jsonl",samples,True)
+            write_jsonl("answer-combine.jsonl", samples,True)
+            write_jsonl("cost_combine.jsonl",inference_cost,True)
+            samples=[]
+            inference_cost=[]
+        else:
+            continue
 
-
-    write_jsonl("test-combine.jsonl",samples,True)
+    wall_cock_time_per_problem=sum_wall_clock_time/164
+    total_tokens_per_problem=sum_total_tokens/164
+    inference_cost.append({"wall_cock_time_per_problem": wall_cock_time_per_problem, "total_tokens_per_problem": total_tokens_per_problem})
+    write_jsonl("cost_combine.jsonl",inference_cost,True)
+    # Write samples to file
+    write_jsonl("answer-combine.jsonl", samples,True)
 
