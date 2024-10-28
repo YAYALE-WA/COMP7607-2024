@@ -10,7 +10,7 @@ import platform
 import signal
 import tempfile
 
-def unsafe_execute(problem, completion, result, timeout):
+def unsafe_execute(problem, test, completion, result, timeout):
     with create_tempdir():
         # These system calls are needed when cleaning up tempdir.
         import os
@@ -23,7 +23,7 @@ def unsafe_execute(problem, completion, result, timeout):
         # Construct the check program and run it.
         check_program = (
             problem["prompt"] + completion + "\n" +
-            problem["test"] + "\n" +
+            test + "\n" +
             f"check({problem['entry_point']})"
         )
         try:
@@ -53,6 +53,7 @@ def unsafe_execute(problem, completion, result, timeout):
         os.chdir = chdir
 
 def check_correctness(problem: Dict,
+                      test: str,
                       completion: str,
                       timeout: float,
                       completion_id: Optional[int] = None) -> Dict:
@@ -70,6 +71,7 @@ def check_correctness(problem: Dict,
         target=unsafe_execute,
         args=(
             problem,
+            test,
             completion,
             result,
             timeout
@@ -159,7 +161,7 @@ class redirect_stdin(contextlib._RedirectStream):  # type: ignore
 def chdir(root):
     if root == ".":
         yield
-        return
+        return  # 检查 os 是否是 <module 'os'>
     cwd = os.getcwd()
     os.chdir(root)
     try:

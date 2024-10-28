@@ -62,7 +62,7 @@ def evaluate_functional_correctness(
         for sample in tqdm.tqdm(stream_jsonl(sample_file)):
             task_id = sample["task_id"]
             completion = sample["completion"]
-            args = (problems[task_id], completion, timeout, completion_id[task_id])
+            args = (problems[task_id],problems[task_id]['test'], completion, timeout, completion_id[task_id])
             future = executor.submit(check_correctness, *args)
             futures.append(future)
             completion_id[task_id] += 1

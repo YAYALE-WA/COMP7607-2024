@@ -82,19 +82,8 @@ def send_prompt_with_context(client,
 
 def get_zeroshot_baseline_file():
     problems = read_problems()
-    # prompts = []
-    # for p in problems:
-    #     prompt = problems[p]["prompt"]
-    #     prompts.append(prompt)
 
-    # test_prompt = prompts[0]
-    # message = [
-    #     {"role": "system", "content": "Environment: ipython"},
-    #     {"role": "user", "content": test_prompt}
-    # ]
-
-
-    client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="def77480-3239-4608-acdb-0ae536165034")
+    client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="d791f60f-7e79-4ec3-8cda-c5cddd36aa00")
     # Prepare to collect samples
     samples = []
 
@@ -112,7 +101,7 @@ def get_zeroshot_baseline_file():
     def wait_until_can_make_call():
         while not can_make_call():
             # Wait for 1 second before checking again
-            time.sleep(1)
+            time.sleep(3)
         # Record the current timestamp
         call_times.append(time.time())
 
