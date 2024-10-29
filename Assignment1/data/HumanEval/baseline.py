@@ -56,6 +56,8 @@ def send_prompt_with_context(client,
                              prompt: str,
                              temperature: int = 0) -> Dict[str, str]:
 
+    total_tokens = 0  # 用于统计生成的 token 总数
+    start_time = time.time()  # 开始计时
     def build_messages(prompt) -> List[Dict[str, str]]:
         messages = [
             {"role": "system", "content": "Environment: ipython"},
@@ -75,8 +77,11 @@ def send_prompt_with_context(client,
         delta = chunk.choices[0].delta
         if hasattr(delta, 'content'):
             full_response += delta.content
+            total_tokens += len(delta.content.split())
+    end_time = time.time()
+    wall_clock_time = end_time - start_time
 
-    return full_response
+    return full_response, wall_clock_time, total_tokens
 
 
 
@@ -86,6 +91,8 @@ def get_zeroshot_baseline_file():
     client = OpenAI(base_url="https://api.sambanova.ai/v1", api_key="d791f60f-7e79-4ec3-8cda-c5cddd36aa00")
     # Prepare to collect samples
     samples = []
+    sum_wall_clock_time = 0
+    sum_total_tokens = 0
 
     # Initialize a deque to keep track of API call timestamps
     call_times = deque()
@@ -110,8 +117,10 @@ def get_zeroshot_baseline_file():
         prompt = problems[task_id]["prompt"]
         wait_until_can_make_call()
         try:
-            completion = send_prompt_with_context(client, prompt)
+            completion,wall_clock_time,total_tokens = send_prompt_with_context(client, prompt)
             samples.append({"task_id": task_id, "completion": completion})
+            sum_wall_clock_time += wall_clock_time
+            sum_total_tokens += total_tokens
             print(f"Processed task {task_id}")
         except RateLimitError as e:
             print(f"Rate limit exceeded at task {task_id}: {e}")
@@ -121,8 +130,10 @@ def get_zeroshot_baseline_file():
             call_times.clear()
             # Retry the same prompt
             try:
-                completion = send_prompt_with_context(client, prompt)
+                completion,wall_clock_time,total_tokens = send_prompt_with_context(client, prompt)
                 samples.append({"task_id": task_id, "completion": completion})
+                sum_wall_clock_time += wall_clock_time
+                sum_total_tokens += total_tokens
                 print(f"Processed task {task_id} after waiting")
             except Exception as e:
                 print(f"Error at task {task_id} after retrying: {e}")
@@ -130,6 +141,6 @@ def get_zeroshot_baseline_file():
             print(f"Error at task {task_id}: {e}")
 
     # Write samples to file
-    write_jsonl("zeroshot.baseline.jsonl", samples)
-
-# get_zeroshot_baseline_file()
+    # write_jsonl("zeroshot.baseline.jsonl", samples)
+    print(f"per wall clock time: {sum_wall_clock_time/164}")
+    print(f"per tokens: {sum_total_tokens/164}")

@@ -27,7 +27,7 @@ def gen_code_with_prompt(client, prompt: str, temperature: int = 0.6) -> Dict[st
             code += delta.content
     return {"code": code, "prompt": prompt}
 
-def refine_code_with_feedback(client, initial_prompt: str, max_iterations: int = 3, temperature: int = 0) -> Dict[str, str]:
+def refine_code_with_feedback(client, initial_prompt: str, max_iterations: int = 3, temperature: int = 0.6) -> Dict[str, str]:
     prompt = initial_prompt
     total_tokens = 0  # 用于统计生成的 token 总数
     start_time = time.time()  # 开始计时
